@@ -2,14 +2,28 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Melbourne UHI App</title>
+  <title>Melbourne UHI • Vegetation • Age 65+</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     html,body,#map{height:100%;margin:0}
-    .legend, .metric {background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.1);font:14px/1.2 system-ui,sans-serif}
-    .legend i{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:middle}
-    .metric {position:absolute;right:10px;top:10px;z-index:1000}
+    /* Title bar */
+    .app-title{
+      position:absolute;left:50%;top:10px;transform:translateX(-50%);
+      background:#ffffffd9;border-radius:10px;padding:8px 14px;z-index:1001;
+      font:600 15px/1.1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      box-shadow:0 2px 8px rgba(0,0,0,.12)
+    }
+    .legend, .metric, .search, .printbtn {
+      background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.1);
+      font:14px/1.2 system-ui, sans-serif
+    }
     .legend {position:absolute;left:10px;bottom:10px;z-index:1000}
+    .metric {position:absolute;right:10px;top:10px;z-index:1000}
+    .search {position:absolute;right:10px;top:70px;z-index:1000;width:260px}
+    .search input{width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px}
+    .search small{color:#666}
+    .printbtn{position:absolute;left:10px;top:10px;z-index:1000;cursor:pointer}
+    .legend i{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:middle}
     .info-popup table{border-collapse:collapse}
     .info-popup td{padding:2px 6px;border-bottom:1px solid #eee}
     .info-popup td:first-child{font-weight:600;color:#555}
@@ -18,14 +32,43 @@
 <body>
 <div id="map"></div>
 
+<!-- Title -->
+<div class="app-title">Melbourne LGAs — UHI, Vegetation %, and Age 65+</div>
+
+<!-- Metric selector -->
+<div class="metric">
+  <label><strong>Metric</strong></label><br>
+  <select id="metricSel">
+    <option value="heat">Heat (UHI mean)</option>
+    <option value="veg">Vegetation %</option>
+    <option value="age">Age 65+ (count)</option>
+  </select>
+</div>
+
+<!-- Search box -->
+<div class="search">
+  <strong>Find LGA</strong>
+  <input id="searchBox" type="text" placeholder="Type LGA name and press Enter">
+  <small id="searchMsg"></small>
+</div>
+
+<!-- Print to PNG -->
+<button id="btnPrint" class="printbtn">🖼️ Save PNG</button>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Lightweight map-to-image helper -->
+<script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.7.0/dist/leaflet-simple-map-screenshoter.min.js"></script>
 <script>
   // --- Map ---
-  const map = L.map('map').setView([-37.8, 144.9], 9);
+  const map = L.map('map', { zoomControl:true }).setView([-37.8, 144.9], 9);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { attribution: '© OpenStreetMap contributors' }).addTo(map);
 
-  // --- Metric selector (heat / veg / age) ---
+  // Add the print-to-PNG plugin
+  const screenshoter = L.simpleMapScreenshoter({ position:'topleft', hideElementsWithSelectors:['.metric','.legend','.search','.app-title'] }).addTo(map);
+  document.getElementById('btnPrint').onclick = () => screenshoter.takeScreen('image/png');
+
+  // --- Metric definitions ---
   const metrics = {
     heat: { field:'uhi18_m_mean', title:'Heat (UHI mean)',
       breaks:[7.5,8.2,8.9,9.6], colors:['#ffffcc','#ffe082','#fdae61','#f46d43','#d73027'],
@@ -42,93 +85,14 @@
   };
   let current = 'heat';
 
-  // UI: metric dropdown
-  const metricCtl = L.control({position:'topright'});
-  metricCtl.onAdd = () => {
-    const d = L.DomUtil.create('div','metric');
-    d.innerHTML = `
-      <label><strong>Metric</strong></label><br>
-      <select id="metricSel">
-        <option value="heat">Heat (UHI mean)</option>
-        <option value="veg">Vegetation %</option>
-        <option value="age">Age 65+ (count)</option>
-      </select>`;
-    return d;
-  };
-  metricCtl.addTo(map);
-  document.addEventListener('change', e=>{
-    if(e.target && e.target.id==='metricSel'){ current = e.target.value; restyle(); updateLegend(); }
-  });
-
   // Legend
-  const legend = L.control({position:'bottomleft'});
-  legend.onAdd = () => {
-    const d = L.DomUtil.create('div','legend');
-    d.id = 'legend';
-    return d;
-  };
-  legend.addTo(map);
-
-  // Color helper
+  const legendDiv = L.DomUtil.create('div','legend'); legendDiv.id='legend';
+  document.body.appendChild(legendDiv);
   function colorFor(v, brks, colors){
     if(v==null) return '#cccccc';
     for(let i=0;i<brks.length;i++){ if(v<=brks[i]) return colors[i]; }
     return colors[colors.length-1];
   }
-
-  // Popup formatter
-  function popupHtml(p){
-    return `
-      <div class="info-popup">
-        <table>
-          <tr><td>LGA</td><td>${p.lga_name ?? '-'}</td></tr>
-          <tr><td>UHI mean</td><td>${metrics.heat.fmt(p.uhi18_m_mean)}</td></tr>
-          <tr><td>Vegetation %</td><td>${metrics.veg.fmt(p.peranyveg_mean)}</td></tr>
-          <tr><td>65+ (count)</td><td>${metrics.age.fmt(p.persons_65plus)}</td></tr>
-        </table>
-      </div>`;
-  }
-
-  let geoLayer = null, geojson = null;
-
-  // Load GeoJSON from your repo (adjust path if you put it in /data/)
-  fetch('lga_uhi_app.geojson')
-    .then(r => r.json())
-    .then(data => {
-      geojson = data;
-      addLayer();
-      updateLegend();
-      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_) {}
-    })
-    .catch(err => {
-      console.error('Failed to load GeoJSON:', err);
-      alert('Could not load GeoJSON. Make sure lga_uhi_app.geojson is in the repo root.');
-    });
-
-  function addLayer(){
-    if(geoLayer) map.removeLayer(geoLayer);
-    geoLayer = L.geoJSON(geojson, {
-      style: feat => {
-        const m = metrics[current];
-        const v = feat.properties[m.field];
-        return { color:'#666', weight:0.6, fillOpacity:0.85,
-          fillColor: colorFor(v, m.breaks, m.colors) };
-      },
-      onEachFeature: (feat, layer) => {
-        layer.on('click', () => layer.bindPopup(popupHtml(feat.properties)).openPopup());
-      }
-    }).addTo(map);
-  }
-
-  function restyle(){
-    if(!geoLayer) return;
-    geoLayer.setStyle(feat => {
-      const m = metrics[current];
-      const v = feat.properties[m.field];
-      return { fillColor: colorFor(v, m.breaks, m.colors) };
-    });
-  }
-
   function updateLegend(){
     const m = metrics[current];
     const d = document.getElementById('legend');
@@ -142,10 +106,110 @@
     labels.push(`<div><i style="background:${m.colors[m.colors.length-1]}"></i>&gt; ${m.breaks[m.breaks.length-1]}</div>`);
     d.innerHTML = `<strong>${m.title}</strong><br>${labels.join('')}`;
   }
+
+  // Popup formatter
+  function popupHtml(p){
+    // TODO: these property names must exist in your GeoJSON
+    return `
+      <div class="info-popup">
+        <table>
+          <tr><td>LGA</td><td>${p.lga_name ?? '-'}</td></tr>
+          <tr><td>UHI mean</td><td>${metrics.heat.fmt(p.uhi18_m_mean)}</td></tr>
+          <tr><td>Vegetation %</td><td>${metrics.veg.fmt(p.peranyveg_mean)}</td></tr>
+          <tr><td>65+ (count)</td><td>${metrics.age.fmt(p.persons_65plus)}</td></tr>
+        </table>
+      </div>`;
+  }
+
+  // Layers
+  let geojson = null, geoLayer = null, highlight = null;
+
+  function addLayer(){
+    if(geoLayer) map.removeLayer(geoLayer);
+    geoLayer = L.geoJSON(geojson, {
+      style: feat => {
+        const m = metrics[current];
+        const v = feat.properties[m.field];
+        return { color:'#666', weight:0.6, fillOpacity:0.85, fillColor: colorFor(v, m.breaks, m.colors) };
+      },
+      onEachFeature: (feat, layer) => {
+        layer.on('click', () => layer.bindPopup(popupHtml(feat.properties)).openPopup());
+      }
+    }).addTo(map);
+  }
+
+  function restyle(){
+    if(!geoLayer) return;
+    const m = metrics[current];
+    geoLayer.setStyle(feat => {
+      const v = feat.properties[m.field];
+      return { fillColor: colorFor(v, m.breaks, m.colors) };
+    });
+    updateLegend();
+  }
+
+  // Load GeoJSON (adjust path if you put it somewhere else)
+  fetch('lga_uhi_app.geojson')  // TODO: change if your file is in /data/lga_uhi_app.geojson
+    .then(r => r.json())
+    .then(data => {
+      geojson = data;
+      addLayer(); updateLegend();
+      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_) {}
+    })
+    .catch(err => {
+      console.error('Failed to load GeoJSON:', err);
+      alert('Could not load GeoJSON. Make sure lga_uhi_app.geojson is in the repo root.');
+    });
+
+  // Metric dropdown
+  document.getElementById('metricSel').addEventListener('change', e => {
+    current = e.target.value; restyle();
+  });
+
+  // --- Search by LGA name (case-insensitive, fuzzy contains) ---
+  function findFeatureByName(name){
+    if(!geojson) return null;
+    const needle = name.trim().toLowerCase();
+    if(!needle) return null;
+    const feats = geojson.features || [];
+    // exact first, then contains
+    let match = feats.find(f => (f.properties.lga_name||'').toLowerCase() === needle);
+    if(!match) match = feats.find(f => (f.properties.lga_name||'').toLowerCase().includes(needle));
+    return match || null;
+  }
+
+  function flashHighlight(feature){
+    if(highlight) { map.removeLayer(highlight); highlight = null; }
+    highlight = L.geoJSON(feature, { style:{ color:'#222', weight:3, fillOpacity:0 } }).addTo(map);
+    setTimeout(()=>{ if(highlight){ map.removeLayer(highlight); highlight=null; } }, 2500);
+  }
+
+  const searchBox = document.getElementById('searchBox');
+  const searchMsg = document.getElementById('searchMsg');
+  searchBox.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      const f = findFeatureByName(searchBox.value);
+      if(!f){ searchMsg.textContent = 'No match'; searchMsg.style.color='#b00'; return; }
+      searchMsg.textContent = '';
+      const lyr = L.geoJSON(f);
+      try { map.fitBounds(lyr.getBounds(), { maxZoom: 11 }); } catch(_){}
+      flashHighlight(f);
+      // open popup with full details
+      const c = lyr.getBounds().getCenter();
+      L.popup().setLatLng(c).setContent(popupHtml(f.properties)).openOn(map);
+    }
+  });
+
+  // Accessibility: avoid map wheel zoom when typing in controls
+  ['metricSel','searchBox'].forEach(id=>{
+    const el = document.getElementById(id);
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  });
 </script>
 
-<!-- Attribution & license -->
-<p style="position:absolute;left:8px;top:10px;background:#fff7;padding:4px 8px;border-radius:4px;">
+<!-- License / attribution -->
+<p style="position:absolute;left:8px;top:52px;background:#fff7;padding:4px 8px;border-radius:6px;">
   <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="license noopener">
     <img src="https://licensebuttons.net/l/by/4.0/88x31.png" alt="CC BY 4.0" style="vertical-align:middle">
   </a>
