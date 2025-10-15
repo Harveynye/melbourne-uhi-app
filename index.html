@@ -154,25 +154,29 @@
     updateLegend();
   }
 
-  // ---- Load GeoJSON with cache-busting & robust errors ----
-  // If you update the data, bump ?v=1 to ?v=2, ?v=3, ...
-  fetch('lga_uhi_app.geojson?v=1', { cache: 'no-store' })
-    .then(r => {
-      if (!r.ok) throw new Error(`GeoJSON HTTP ${r.status}`);
-      return r.json();
-    })
-    .then(data => {
-      if (!data || data.type !== 'FeatureCollection') {
-        throw new Error('Invalid GeoJSON: expected FeatureCollection');
-      }
-      geojson = data;
-      addLayer(); updateLegend();
-      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_){}
-    })
-    .catch(err => {
-      console.error('Failed to load GeoJSON:', err);
-      alert('Could not load GeoJSON. Check the console for details and ensure lga_uhi_app.geojson exists at the site root.');
-    });
+  // ---- Load GeoJSON from raw.githubusercontent.com (cache-busted) ----
+// Bump ?v=2, ?v=3… whenever you update the data.
+const DATA_URL =
+  "https://raw.githubusercontent.com/Harveynye/melbourne-uhi-app/main/lga_uhi_app.geojson?v=2";
+
+fetch(DATA_URL, { cache: "no-store" })
+  .then(r => {
+    if (!r.ok) throw new Error(`GeoJSON HTTP ${r.status}`);
+    return r.json();
+  })
+  .then(data => {
+    if (!data || data.type !== "FeatureCollection") {
+      throw new Error("Invalid GeoJSON: expected FeatureCollection");
+    }
+    geojson = data;
+    addLayer();
+    updateLegend();
+    try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_) {}
+  })
+  .catch(err => {
+    console.error("Failed to load GeoJSON:", err);
+    alert("Could not load GeoJSON. See console for details.");
+  });
 
   // Metric dropdown
   document.getElementById('metricSel').addEventListener('change', e => {
