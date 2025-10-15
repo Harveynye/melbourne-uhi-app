@@ -84,9 +84,9 @@
 <script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.7.0/dist/leaflet-simple-map-screenshoter.min.js"></script>
 <script>
   // ===== CONFIG =====
-  // Load your GeoJSON from GitHub raw (works with CORS) + cache bust
-  const DATA_URL = "https://raw.githubusercontent.com/Harveynye/melbourne-uhi-app/main/lga_uhi_app.geojson?v=3";
-  // If you later move the file, set e.g. "https://raw.githubusercontent.com/Harveynye/melbourne-uhi-app/main/data/file.geojson?v=1"
+  // Your GeoJSON (RAW is best for CORS). Bump ?v=… when you update the file.
+  const RAW_URL   = 'https://raw.githubusercontent.com/Harveynye/melbourne-uhi-app/main/lga_uhi_app.geojson?v=4';
+  const PAGES_URL = 'https://harveynye.github.io/melbourne-uhi-app/lga_uhi_app.geojson?v=4';
 
   // ===== MAP =====
   const map = L.map('map', { zoomControl:true }).setView([-37.8, 144.9], 9);
@@ -152,7 +152,7 @@
       </div>`;
   }
 
-  // Layers
+  // Layer helpers
   let geojson = null, geoLayer = null, highlight = null;
 
   function addLayer(){
@@ -178,25 +178,6 @@
     });
     updateLegend();
   }
-
-  // ---- Load GeoJSON  ----
-  fetch(DATA_URL, { cache: "no-store" })
-    .then(r => {
-      if (!r.ok) throw new Error(`GeoJSON HTTP ${r.status}`);
-      return r.json();
-    })
-    .then(data => {
-      if (!data || data.type !== "FeatureCollection") {
-        throw new Error("Invalid GeoJSON: expected FeatureCollection");
-      }
-      geojson = data;
-      addLayer(); updateLegend();
-      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_) {}
-    })
-    .catch(err => {
-      console.error("Failed to load GeoJSON:", err);
-      alert("Could not load GeoJSON. See console for details.");
-    });
 
   // Metric dropdown
   document.getElementById('metricSel').addEventListener('change', e => {
@@ -233,12 +214,95 @@
     }
   });
 
-  // Prevent map scroll while typing
+  // Avoid map scroll while typing
   ['metricSel','searchBox'].forEach(id=>{
     const el = document.getElementById(id);
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
   });
+
+  // ======== DIAGNOSTIC LOADER ========
+  function diag(msg, ok=false){
+    let b = document.getElementById('diag');
+    if(!b){
+      b = document.createElement('div');
+      b.id = 'diag';
+      b.style.cssText = 'position:absolute;right:10px;bottom:10px;z-index:2000;padding:8px 10px;border-radius:6px;font:13px system-ui;color:#111';
+      document.body.appendChild(b);
+    }
+    b.style.background = ok ? '#e8f5e9' : '#ffebee';
+    b.style.border = ok ? '1px solid #2e7d32' : '1px solid #c62828';
+    b.innerText = msg;
+  }
+
+  async function tryLoad(url){
+    console.log('[GeoJSON] Fetching', url);
+    const r = await fetch(url, {cache:'no-store'});
+    if(!r.ok) throw new Error(`HTTP ${r.status} at ${url}`);
+    const ct = r.headers.get('content-type') || '';
+    if(!ct.includes('application/json') && !ct.includes('geo+json')){
+      console.warn('Content-Type not JSON, got:', ct);
+    }
+    const j = await r.json();
+    if(!j || j.type !== 'FeatureCollection') throw new Error('Invalid GeoJSON: expected FeatureCollection');
+    if(!Array.isArray(j.features)) throw new Error('Invalid GeoJSON: missing features[]');
+    return j;
+  }
+
+  (async ()=>{
+    try{
+      // 1) Try RAW (best CORS)
+      try{
+        geojson = await tryLoad(RAW_URL);
+        diag(`Loaded ${geojson.features.length} features from RAW`, true);
+      }catch(e1){
+        console.warn('RAW load failed:', e1);
+        // 2) Fallback to Pages
+        geojson = await tryLoad(PAGES_URL);
+        diag(`Loaded ${geojson.features.length} features from Pages`, true);
+      }
+
+      // Schema sanity (logs only)
+      const p0 = geojson.features[0]?.properties || {};
+      ['lga_name','uhi18_m_mean','peranyveg_mean','persons_65plus'].forEach(k=>{
+        if(!(k in p0)) console.warn(`[GeoJSON] First feature missing expected property: ${k}`);
+      });
+
+      addLayer(); updateLegend();
+      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_){}
+
+    }catch(err){
+      console.error('GeoJSON load failed:', err);
+      diag(`GeoJSON load failed: ${err.message}`, false);
+
+      // Show a tiny TEST polygon so styling/popup can still be verified
+      const test = {
+        "type":"FeatureCollection",
+        "features":[{
+          "type":"Feature",
+          "properties":{
+            "lga_name":"TEST CBD",
+            "uhi18_m_mean": 8.7,
+            "peranyveg_mean": 22.5,
+            "persons_65plus": 1234
+          },
+          "geometry":{
+            "type":"Polygon",
+            "coordinates":[[
+              [144.952, -37.821],
+              [144.986, -37.821],
+              [144.986, -37.805],
+              [144.952, -37.805],
+              [144.952, -37.821]
+            ]]
+          }
+        }]}
+      ;
+      geojson = test;
+      addLayer(); updateLegend();
+      try { map.fitBounds(L.geoJSON(test).getBounds()); } catch(_){}
+    }
+  })();
 
   // ---- EMBED (iframe) helper ----
   const appUrl = 'https://harveynye.github.io/melbourne-uhi-app/'; // your live URL
