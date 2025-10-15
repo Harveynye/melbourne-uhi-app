@@ -2,7 +2,8 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Melbourne UHI • Vegetation • Age 65+</title>
+  <title>Melbourne LGAs — UHI • Vegetation • Age 65+</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     html,body,#map{height:100%;margin:0}
@@ -27,6 +28,11 @@
     .info-popup table{border-collapse:collapse}
     .info-popup td{padding:2px 6px;border-bottom:1px solid #eee}
     .info-popup td:first-child{font-weight:600;color:#555}
+    /* tiny screen tweaks */
+    @media (max-width:600px){
+      .search{width:200px}
+      .app-title{font-size:13px}
+    }
   </style>
 </head>
 <body>
@@ -56,7 +62,6 @@
 <button id="btnPrint" class="printbtn">🖼️ Save PNG</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- Lightweight map-to-image helper -->
 <script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.7.0/dist/leaflet-simple-map-screenshoter.min.js"></script>
 <script>
   // --- Map ---
@@ -64,8 +69,11 @@
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { attribution: '© OpenStreetMap contributors' }).addTo(map);
 
-  // Add the print-to-PNG plugin
-  const screenshoter = L.simpleMapScreenshoter({ position:'topleft', hideElementsWithSelectors:['.metric','.legend','.search','.app-title'] }).addTo(map);
+  // Print to PNG (hides UI elements during capture)
+  const screenshoter = L.simpleMapScreenshoter({
+    position:'topleft',
+    hideElementsWithSelectors:['.metric','.legend','.search','.app-title']
+  }).addTo(map);
   document.getElementById('btnPrint').onclick = () => screenshoter.takeScreen('image/png');
 
   // --- Metric definitions ---
@@ -107,9 +115,9 @@
     d.innerHTML = `<strong>${m.title}</strong><br>${labels.join('')}`;
   }
 
-  // Popup formatter
+  // Popup content
   function popupHtml(p){
-    // TODO: these property names must exist in your GeoJSON
+    // TODO: ensure these properties exist in your GeoJSON
     return `
       <div class="info-popup">
         <table>
@@ -148,13 +156,13 @@
     updateLegend();
   }
 
-  // Load GeoJSON (adjust path if you put it somewhere else)
+  // Load GeoJSON (adjust path if needed)
   fetch('lga_uhi_app.geojson')  // TODO: change if your file is in /data/lga_uhi_app.geojson
     .then(r => r.json())
     .then(data => {
       geojson = data;
       addLayer(); updateLegend();
-      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_) {}
+      try { map.fitBounds(L.geoJSON(geojson).getBounds()); } catch(_){}
     })
     .catch(err => {
       console.error('Failed to load GeoJSON:', err);
@@ -166,24 +174,21 @@
     current = e.target.value; restyle();
   });
 
-  // --- Search by LGA name (case-insensitive, fuzzy contains) ---
+  // --- Search by LGA name ---
   function findFeatureByName(name){
     if(!geojson) return null;
     const needle = name.trim().toLowerCase();
     if(!needle) return null;
     const feats = geojson.features || [];
-    // exact first, then contains
     let match = feats.find(f => (f.properties.lga_name||'').toLowerCase() === needle);
     if(!match) match = feats.find(f => (f.properties.lga_name||'').toLowerCase().includes(needle));
     return match || null;
   }
-
   function flashHighlight(feature){
     if(highlight) { map.removeLayer(highlight); highlight = null; }
     highlight = L.geoJSON(feature, { style:{ color:'#222', weight:3, fillOpacity:0 } }).addTo(map);
     setTimeout(()=>{ if(highlight){ map.removeLayer(highlight); highlight=null; } }, 2500);
   }
-
   const searchBox = document.getElementById('searchBox');
   const searchMsg = document.getElementById('searchMsg');
   searchBox.addEventListener('keydown', e=>{
@@ -194,13 +199,12 @@
       const lyr = L.geoJSON(f);
       try { map.fitBounds(lyr.getBounds(), { maxZoom: 11 }); } catch(_){}
       flashHighlight(f);
-      // open popup with full details
       const c = lyr.getBounds().getCenter();
       L.popup().setLatLng(c).setContent(popupHtml(f.properties)).openOn(map);
     }
   });
 
-  // Accessibility: avoid map wheel zoom when typing in controls
+  // Avoid map interactions when typing in controls
   ['metricSel','searchBox'].forEach(id=>{
     const el = document.getElementById(id);
     L.DomEvent.disableClickPropagation(el);
@@ -208,12 +212,21 @@
   });
 </script>
 
-<!-- License / attribution -->
+<!-- Attribution / license -->
 <p style="position:absolute;left:8px;top:52px;background:#fff7;padding:4px 8px;border-radius:6px;">
   <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="license noopener">
     <img src="https://licensebuttons.net/l/by/4.0/88x31.png" alt="CC BY 4.0" style="vertical-align:middle">
   </a>
-  <span style="margin-left:8px;">This Cloud-based Open-source GIS Application is developed by <a href="#" target="_blank" rel="noopener">Your Name</a> — CC BY 4.0</span>
+  <span style="margin-left:8px;">This Cloud-based Open-source GIS Application is developed by
+    <a href="https://github.com/Harveynye" target="_blank" rel="noopener">Harvey Nye</a> — CC BY 4.0</span>
 </p>
+
+<!-- OPTIONAL: copy this anywhere to embed your app -->
+<!--
+<iframe
+  src="https://harveynye.github.io/melbourne-uhi-app/"
+  width="100%" height="640" style="border:0;" loading="lazy" allowfullscreen>
+</iframe>
+-->
 </body>
 </html>
